@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "experiment": "tsx ../scripts/experiment-cli.ts",
     "upload-videos": "node scripts/upload-videos.js",
     "set-bucket-policy": "node scripts/set-bucket-policy.js",
@@ -51,5 +54,12 @@
     "typescript": "^5.8.3",
     "uuid": "^11.1.0",
     "yup": "^1.6.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^30.0.0-beta.3"
   }
 }

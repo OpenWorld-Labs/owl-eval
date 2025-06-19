@@ -17,12 +17,34 @@ export interface Comparison {
   created_at: string
 }
 
+export interface VideoTask {
+  video_task_id: string
+  scenario_id: string
+  model_name: string
+  video_path: string
+  scenario_metadata: {
+    name: string
+    description: string
+    biome?: string
+  }
+  created_at: string
+}
+
 export interface EvaluationResult {
   result_id: string
   comparison_id: string
   evaluator_id: string
   dimension_scores: Record<string, string>
   detailed_ratings: Record<string, any>
+  completion_time_seconds: number
+  submitted_at: string
+}
+
+export interface SingleVideoEvaluationResult {
+  result_id: string
+  video_task_id: string
+  evaluator_id: string
+  dimension_scores: Record<string, number> // 1-5 scale scores
   completion_time_seconds: number
   submitted_at: string
 }

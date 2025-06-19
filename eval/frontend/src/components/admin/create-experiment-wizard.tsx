@@ -55,12 +55,19 @@ interface ExperimentData {
   description: string
   slug: string
   group: string
+  evaluationMode: 'comparison' | 'single_video'
   comparisons: Comparison[]
 }
 
-const STEPS = [
+const getSteps = (evaluationMode: 'comparison' | 'single_video') => [
   { id: 'details', title: 'Experiment Details', description: 'Basic information about your experiment' },
-  { id: 'comparisons', title: 'Add Comparisons', description: 'Define model comparisons and scenarios' },
+  { 
+    id: 'tasks', 
+    title: evaluationMode === 'comparison' ? 'Add Comparisons' : 'Add Video Tasks', 
+    description: evaluationMode === 'comparison' 
+      ? 'Define model comparisons and scenarios' 
+      : 'Define individual video evaluation tasks'
+  },
   { id: 'review', title: 'Review & Create', description: 'Review your experiment before creation' }
 ]
 
@@ -77,6 +84,7 @@ export function CreateExperimentWizard({
     description: '',
     slug: '',
     group: '',
+    evaluationMode: 'comparison',
     comparisons: []
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -133,7 +141,8 @@ export function CreateExperimentWizard({
 
   const nextStep = () => {
     if (validateStep(currentStep)) {
-      setCurrentStep(prev => Math.min(prev + 1, STEPS.length - 1))
+      const steps = getSteps(experiment.evaluationMode)
+      setCurrentStep(prev => Math.min(prev + 1, steps.length - 1))
     }
   }
 
@@ -204,6 +213,7 @@ export function CreateExperimentWizard({
         description: '',
         slug: '',
         group: '',
+        evaluationMode: 'comparison',
         comparisons: []
       })
       setCurrentStep(0)
@@ -227,7 +237,8 @@ export function CreateExperimentWizard({
   }
 
   const getStepProgress = () => {
-    return ((currentStep + 1) / STEPS.length) * 100
+    const steps = getSteps(experiment.evaluationMode)
+    return ((currentStep + 1) / steps.length) * 100
   }
 
   const canProceed = () => {
@@ -253,18 +264,18 @@ export function CreateExperimentWizard({
           <DialogTitle className="flex items-center gap-2">
             Create New Experiment
             <Badge variant="outline" className="ml-2">
-              Step {currentStep + 1} of {STEPS.length}
+              Step {currentStep + 1} of {getSteps(experiment.evaluationMode).length}
             </Badge>
           </DialogTitle>
           <DialogDescription>
-            {STEPS[currentStep].description}
+            {getSteps(experiment.evaluationMode)[currentStep].description}
           </DialogDescription>
         </DialogHeader>
 
         {/* Progress Bar */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            {STEPS.map((step, index) => (
+            {getSteps(experiment.evaluationMode).map((step, index) => (
               <span 
                 key={step.id}
                 className={`font-medium ${
@@ -340,6 +351,29 @@ export function CreateExperimentWizard({
                 />
                 <p className="text-xs text-gray-500">
                   Group experiments together for organization and filtering
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="evaluation-mode">
+                  Evaluation Mode <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  id="evaluation-mode"
+                  value={experiment.evaluationMode}
+                  onChange={(e) => setExperiment(prev => ({ 
+                    ...prev, 
+                    evaluationMode: e.target.value as 'comparison' | 'single_video' 
+                  }))}
+                  className="w-full px-3 py-2 border border-input bg-background rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+                  <option value="comparison">Comparison Mode (A vs B)</option>
+                  <option value="single_video">Single Video Mode (Absolute Rating)</option>
+                </select>
+                <p className="text-xs text-gray-500">
+                  {experiment.evaluationMode === 'comparison' 
+                    ? 'Participants compare two videos side-by-side and choose which is better'
+                    : 'Participants evaluate individual videos on absolute rating scales (1-5)'
+                  }
                 </p>
               </div>
               <div className="space-y-2">

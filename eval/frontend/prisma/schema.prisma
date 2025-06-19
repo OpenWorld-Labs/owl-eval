@@ -20,6 +20,7 @@ model Experiment {
   archived        Boolean  @default(false)
   group           String?  // Optional experiment group for organization
   prolificStudyId String?  @unique
+  evaluationMode  String   @default("comparison") // comparison, single_video
   config          Json     // Stores experiment configuration (models, scenarios, parameters)
   createdBy       String?  // Stack Auth user ID
   createdAt       DateTime @default(now())
@@ -28,11 +29,14 @@ model Experiment {
   completedAt     DateTime?
   archivedAt      DateTime?
   
-  comparisons     Comparison[]
-  participants    Participant[]
-  evaluations     Evaluation[]
+  comparisons        Comparison[]
+  videoTasks         VideoTask[]
+  participants       Participant[]
+  evaluations        Evaluation[]
+  singleVideoEvals   SingleVideoEvaluation[]
   
   @@index([slug])
+  @@index([evaluationMode])
 }
 
 model Comparison {
@@ -60,12 +64,14 @@ model Participant {
   status             String   @default("active") // active, completed, rejected
   completionCode     String?
   assignedComparisons Json    // Array of comparison IDs
+  assignedVideoTasks Json    @default("[]") // Array of video task IDs for single-video evaluations
   startedAt          DateTime @default(now())
   completedAt        DateTime?
   metadata           Json?    // Additional Prolific data
   
-  experiment         Experiment @relation(fields: [experimentId], references: [id])
-  evaluations        Evaluation[]
+  experiment            Experiment @relation(fields: [experimentId], references: [id])
+  evaluations           Evaluation[]
+  singleVideoEvals      SingleVideoEvaluation[]
   
   @@index([prolificId])
   @@index([experimentId])
@@ -110,8 +116,51 @@ model Video {
   uploadedAt  DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  videoTasks  VideoTask[]
+
   @@index([tags])
   @@index([groups])
   @@index([modelName])
   @@index([scenarioId])
+}
+
+model VideoTask {
+  id           String   @id @default(cuid())
+  experimentId String
+  scenarioId   String
+  modelName    String
+  videoPath    String
+  videoId      String?  // Optional link to Video model
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  
+  experiment          Experiment @relation(fields: [experimentId], references: [id])
+  video               Video?     @relation(fields: [videoId], references: [id])
+  singleVideoEvals    SingleVideoEvaluation[]
+  
+  @@index([experimentId])
+  @@index([scenarioId])
+}
+
+model SingleVideoEvaluation {
+  id                    String   @id @default(cuid())
+  videoTaskId           String
+  participantId         String
+  experimentId          String
+  dimensionScores       Json     // Stores all dimension scores (1-5 scale)
+  completionTimeSeconds Float?
+  clientMetadata        Json?    // Browser info, etc.
+  status                String   @default("draft") // draft, completed
+  lastSavedAt           DateTime @updatedAt
+  createdAt             DateTime @default(now())
+  
+  videoTask             VideoTask   @relation(fields: [videoTaskId], references: [id])
+  participant           Participant @relation(fields: [participantId], references: [id])
+  experiment            Experiment  @relation(fields: [experimentId], references: [id])
+  
+  @@unique([videoTaskId, participantId]) // Prevent duplicate evaluations
+  @@index([videoTaskId])
+  @@index([participantId])
+  @@index([experimentId])
+  @@index([status])
 }

@@ -75,18 +75,36 @@ program
       const group = options.group || 
         await question(chalk.cyan('Group (optional): '));
       
+      // Evaluation mode selection
+      console.log(chalk.blue('\n⚖️  Evaluation Mode'));
+      console.log(chalk.gray('1. Comparison Mode (A vs B) - Compare two videos side-by-side'));
+      console.log(chalk.gray('2. Single Video Mode (Absolute Rating) - Rate individual videos 1-5 scale'));
+      const modeInput = await question(chalk.cyan('Select evaluation mode (1 or 2): '));
+      const evaluationMode = modeInput === '2' ? 'single_video' : 'comparison';
+      
       // Model configuration
       console.log(chalk.blue('\n📊 Model Configuration'));
-      const modelsInput = await question(
-        chalk.cyan('Models to compare (comma-separated, e.g., "model1,model2"): ')
-      );
-      const models = modelsInput.split(',').map((m: string) => m.trim());
+      
+      let models: string[] = [];
+      let scenarios: string[] = [];
+      
+      if (evaluationMode === 'comparison') {
+        const modelsInput = await question(
+          chalk.cyan('Models to compare (comma-separated, e.g., "model1,model2"): ')
+        );
+        models = modelsInput.split(',').map((m: string) => m.trim());
+      } else {
+        const modelsInput = await question(
+          chalk.cyan('Models to evaluate (comma-separated, e.g., "model1,model2,model3"): ')
+        );
+        models = modelsInput.split(',').map((m: string) => m.trim());
+      }
       
       // Scenario configuration
       const scenariosInput = await question(
         chalk.cyan('Scenarios (comma-separated, e.g., "forest,desert,ocean"): ')
       );
-      const scenarios = scenariosInput.split(',').map((s: string) => s.trim());
+      scenarios = scenariosInput.split(',').map((s: string) => s.trim());
       
       // Create experiment
       const experiment = await prisma.experiment.create({
@@ -96,11 +114,12 @@ program
           description: description || null,
           group: group || null,
           status: 'draft',
+          evaluationMode,
           createdBy: auth.userId,
           config: {
             models,
             scenarios,
-            evaluationsPerComparison: 5,
+            evaluationsPerComparison: evaluationMode === 'comparison' ? 5 : 3,
             dimensions: [
               'overall_quality',
               'controllability',
@@ -115,15 +134,23 @@ program
       console.log(chalk.white('ID:'), chalk.yellow(experiment.id));
       console.log(chalk.white('Slug:'), chalk.yellow(experiment.slug));
       console.log(chalk.white('Status:'), chalk.yellow(experiment.status));
+      console.log(chalk.white('Mode:'), chalk.yellow(experiment.evaluationMode));
       if (experiment.group) {
         console.log(chalk.white('Group:'), chalk.yellow(experiment.group));
       }
-      console.log(chalk.white('\nEvaluation URL:'), 
-        chalk.blue.underline(`https://yourdomain.com/evaluate/${experiment.slug}`));
+      
+      const evaluationUrl = experiment.evaluationMode === 'single_video' 
+        ? `https://yourdomain.com/evaluate-video/${experiment.slug}`
+        : `https://yourdomain.com/evaluate/${experiment.slug}`;
+      console.log(chalk.white('\nEvaluation URL:'), chalk.blue.underline(evaluationUrl));
       
       console.log(chalk.gray('\nNext steps:'));
       console.log(chalk.gray('1. Upload videos using: experiment-cli upload-videos --dir <directory>'));
-      console.log(chalk.gray('2. Assign videos using: experiment-cli assign-videos --experiment <slug>'));
+      if (experiment.evaluationMode === 'single_video') {
+        console.log(chalk.gray('2. Create video tasks using: experiment-cli create-video-tasks --experiment <slug>'));
+      } else {
+        console.log(chalk.gray('2. Assign videos using: experiment-cli assign-videos --experiment <slug>'));
+      }
       console.log(chalk.gray('3. Launch experiment using: experiment-cli launch'));
       
       } catch (error) {
@@ -149,8 +176,10 @@ program
           _count: {
             select: {
               comparisons: true,
+              videoTasks: true,
               participants: true,
               evaluations: true,
+              singleVideoEvals: true,
             }
           }
         }
@@ -171,13 +200,21 @@ program
           
           console.log(chalk.bold.white(`${exp.name} (${exp.slug})`));
           console.log(chalk[statusColor](`  Status: ${exp.status}`));
+          console.log(chalk.blue(`  Mode: ${exp.evaluationMode}`));
           if (exp.group) {
             console.log(chalk.gray(`  Group: ${exp.group}`));
           }
           console.log(chalk.gray(`  Created: ${exp.createdAt.toLocaleDateString()}`));
-          console.log(chalk.gray(`  Comparisons: ${exp._count.comparisons}`));
+          
+          if (exp.evaluationMode === 'single_video') {
+            console.log(chalk.gray(`  Video Tasks: ${exp._count.videoTasks}`));
+            console.log(chalk.gray(`  Single Video Evaluations: ${exp._count.singleVideoEvals}`));
+          } else {
+            console.log(chalk.gray(`  Comparisons: ${exp._count.comparisons}`));
+            console.log(chalk.gray(`  Evaluations: ${exp._count.evaluations}`));
+          }
           console.log(chalk.gray(`  Participants: ${exp._count.participants}`));
-          console.log(chalk.gray(`  Evaluations: ${exp._count.evaluations}`));
+          
           if (exp.prolificStudyId) {
             console.log(chalk.cyan(`  Prolific Study: ${exp.prolificStudyId}`));
           }
@@ -343,11 +380,19 @@ program
           _count: {
             select: {
               comparisons: true,
+              videoTasks: true,
               participants: true,
               evaluations: true,
+              singleVideoEvals: true,
             }
           },
           evaluations: {
+            select: {
+              dimensionScores: true,
+              completionTimeSeconds: true,
+            }
+          },
+          singleVideoEvals: {
             select: {
               dimensionScores: true,
               completionTimeSeconds: true,
@@ -363,26 +408,50 @@ program
       
       console.log(chalk.blue.bold(`\n📊 Statistics for "${experiment.name}"\n`));
       console.log(chalk.white('Status:'), chalk.yellow(experiment.status));
-      console.log(chalk.white('Total Comparisons:'), chalk.yellow(experiment._count.comparisons));
+      console.log(chalk.white('Mode:'), chalk.yellow(experiment.evaluationMode));
       console.log(chalk.white('Total Participants:'), chalk.yellow(experiment._count.participants));
-      console.log(chalk.white('Total Evaluations:'), chalk.yellow(experiment._count.evaluations));
       
-      if (experiment._count.comparisons > 0) {
-        const avgEvaluationsPerComparison = 
-          experiment._count.evaluations / experiment._count.comparisons;
-        console.log(chalk.white('Avg Evaluations/Comparison:'), 
-          chalk.yellow(avgEvaluationsPerComparison.toFixed(2)));
-      }
-      
-      if (experiment.evaluations.length > 0) {
-        const avgCompletionTime = experiment.evaluations
-          .filter(e => e.completionTimeSeconds)
-          .reduce((sum, e) => sum + (e.completionTimeSeconds || 0), 0) / 
-          experiment.evaluations.filter(e => e.completionTimeSeconds).length;
+      if (experiment.evaluationMode === 'single_video') {
+        console.log(chalk.white('Total Video Tasks:'), chalk.yellow(experiment._count.videoTasks));
+        console.log(chalk.white('Total Single Video Evaluations:'), chalk.yellow(experiment._count.singleVideoEvals));
         
+        if (experiment._count.videoTasks > 0) {
+          const avgEvaluationsPerTask = 
+            experiment._count.singleVideoEvals / experiment._count.videoTasks;
+          console.log(chalk.white('Avg Evaluations/Task:'), 
+            chalk.yellow(avgEvaluationsPerTask.toFixed(2)));
+        }
+        
+        if (experiment.singleVideoEvals.length > 0) {
+          const avgCompletionTime = experiment.singleVideoEvals
+            .filter(e => e.completionTimeSeconds)
+            .reduce((sum, e) => sum + (e.completionTimeSeconds || 0), 0) / 
+            experiment.singleVideoEvals.filter(e => e.completionTimeSeconds).length;
+          
           console.log(chalk.white('Avg Completion Time:'), 
             chalk.yellow(`${(avgCompletionTime / 60).toFixed(1)} minutes`));
         }
+      } else {
+        console.log(chalk.white('Total Comparisons:'), chalk.yellow(experiment._count.comparisons));
+        console.log(chalk.white('Total Evaluations:'), chalk.yellow(experiment._count.evaluations));
+        
+        if (experiment._count.comparisons > 0) {
+          const avgEvaluationsPerComparison = 
+            experiment._count.evaluations / experiment._count.comparisons;
+          console.log(chalk.white('Avg Evaluations/Comparison:'), 
+            chalk.yellow(avgEvaluationsPerComparison.toFixed(2)));
+        }
+        
+        if (experiment.evaluations.length > 0) {
+          const avgCompletionTime = experiment.evaluations
+            .filter(e => e.completionTimeSeconds)
+            .reduce((sum, e) => sum + (e.completionTimeSeconds || 0), 0) / 
+            experiment.evaluations.filter(e => e.completionTimeSeconds).length;
+          
+          console.log(chalk.white('Avg Completion Time:'), 
+            chalk.yellow(`${(avgCompletionTime / 60).toFixed(1)} minutes`));
+        }
+      }
         
       } catch (error) {
         console.error(chalk.red('Error getting stats:'), error);
@@ -580,6 +649,125 @@ program
     }, true);
   });
 
+// Create video tasks command
+program
+  .command('create-video-tasks')
+  .description('Create video tasks for single video evaluation experiments')
+  .option('-e, --experiment <slug>', 'Experiment slug')
+  .option('--strategy <strategy>', 'Assignment strategy (auto|random|manual)', 'auto')
+  .option('--seed <seed>', 'Random seed for reproducible assignment')
+  .action(async (options) => {
+    await requireAuth('create video tasks', async () => {
+      try {
+        console.log(chalk.blue.bold('\n🎬 Creating Video Tasks\n'));
+        
+        let experimentSlug = options.experiment;
+        if (!experimentSlug) {
+          const { question } = getReadline();
+          experimentSlug = await question(chalk.cyan('Experiment slug: '));
+        }
+        
+        // Get experiment
+        const experiment = await prisma.experiment.findUnique({
+          where: { slug: experimentSlug },
+          include: { videoTasks: true }
+        });
+        
+        if (!experiment) {
+          console.log(chalk.red(`Experiment "${experimentSlug}" not found.`));
+          return;
+        }
+        
+        if (experiment.evaluationMode !== 'single_video') {
+          console.log(chalk.red(`Experiment "${experimentSlug}" is not in single video mode.`));
+          return;
+        }
+        
+        // Get video library
+        const response = await fetch('http://localhost:3000/api/videos');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch video library: ${response.status}`);
+        }
+        const videos = await response.json();
+        
+        if (videos.length === 0) {
+          console.log(chalk.red('No videos found in library.'));
+          console.log(chalk.gray('Upload videos first using: experiment-cli upload-videos --dir <directory>'));
+          return;
+        }
+        
+        console.log(chalk.white(`Found experiment: ${experiment.name}`));
+        console.log(chalk.white(`Available videos: ${videos.length}`));
+        
+        const config = experiment.config as any;
+        const models = config?.models || [];
+        const scenarios = config?.scenarios || [];
+        
+        const videoTasks: any[] = [];
+        
+        console.log(chalk.blue('\n🤖 Auto-creating video tasks based on metadata...\n'));
+        
+        for (const scenario of scenarios) {
+          for (const model of models) {
+            // Find video by metadata first, fallback to filename patterns
+            let video = videos.find((v: any) => 
+              v.modelName === model && v.scenarioId === scenario
+            );
+            
+            // Fallback to filename patterns if metadata not available
+            if (!video) {
+              video = videos.find((v: any) => 
+                v.name.toLowerCase().includes(scenario.toLowerCase()) && 
+                v.name.toLowerCase().includes(model.toLowerCase())
+              );
+            }
+            
+            if (video) {
+              videoTasks.push({
+                experimentId: experiment.id,
+                scenarioId: scenario,
+                modelName: model,
+                videoPath: video.url || video.path,
+                videoId: video.id,
+                metadata: {
+                  videoName: video.name,
+                  videoSize: video.size,
+                  videoDuration: video.duration
+                }
+              });
+              
+              console.log(chalk.green(`✓ ${scenario}: ${model}`));
+              console.log(chalk.gray(`  Video: ${video.name}\n`));
+            } else {
+              console.log(chalk.yellow(`⚠ ${scenario}: ${model} - video not found`));
+            }
+          }
+        }
+        
+        if (videoTasks.length > 0) {
+          // Create video tasks
+          await prisma.videoTask.createMany({
+            data: videoTasks
+          });
+          
+          console.log(chalk.green.bold(`\n✅ Created ${videoTasks.length} video tasks!`));
+          console.log(chalk.white('Tasks created for:'));
+          videoTasks.forEach(task => {
+            console.log(chalk.gray(`  - ${task.scenarioId}: ${task.modelName}`));
+          });
+        } else {
+          console.log(chalk.red('\nNo matching videos found. Check your video metadata or filename patterns.'));
+          console.log(chalk.gray('Expected: videos with modelName and scenarioId metadata, or pattern {scenario}_{model}.mp4'));
+        }
+        
+      } catch (error) {
+        console.error(chalk.red('Error creating video tasks:'), error);
+      } finally {
+        await prisma.$disconnect();
+      }
+    }, true);
+  });
+
 // Bulk experiment creation command
 program
   .command('create-bulk')
@@ -587,6 +775,7 @@ program
   .option('-m, --models <models>', 'Comma-separated list of models')
   .option('-s, --scenarios <scenarios>', 'Comma-separated list of scenarios')
   .option('-g, --group <group>', 'Experiment group for organization')
+  .option('--mode <mode>', 'Evaluation mode (comparison|single_video)', 'comparison')
   .option('--strategy <strategy>', 'Video assignment strategy (auto|random|manual)', 'auto')
   .option('--seed <seed>', 'Random seed for reproducible assignment')
   .option('--randomize-order', 'Randomize comparison order')
@@ -613,6 +802,7 @@ program
           chalk.cyan('Experiment group (optional): ')
         );
         
+        const evaluationMode = options.mode;
         const strategy = options.strategy;
         const seed = options.seed ? parseInt(options.seed) : undefined;
         
@@ -627,6 +817,7 @@ program
             models,
             scenarios,
             group: group || null,
+            evaluationMode,
             videoAssignmentStrategy: strategy,
             randomSeed: seed,
             randomizeOrder: options.randomizeOrder || false,
@@ -644,7 +835,13 @@ program
         
         console.log(chalk.green.bold('\n✅ Bulk experiments created successfully!\n'));
         console.log(chalk.white('Created:'), chalk.yellow(`${result.experiments.length} experiments`));
-        console.log(chalk.white('Total comparisons:'), chalk.yellow(result.totalComparisons));
+        console.log(chalk.white('Mode:'), chalk.yellow(evaluationMode));
+        
+        if (evaluationMode === 'single_video') {
+          console.log(chalk.white('Total video tasks:'), chalk.yellow(result.totalVideoTasks || 0));
+        } else {
+          console.log(chalk.white('Total comparisons:'), chalk.yellow(result.totalComparisons || 0));
+        }
         
         if (result.videoAssignments) {
           console.log(chalk.white('Videos assigned:'), chalk.yellow(result.videoAssignments));
