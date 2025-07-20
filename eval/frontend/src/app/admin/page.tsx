@@ -1,8 +1,11 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRequireOrganization } from '@/lib/organization-context'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { toast } from '@/components/ui/use-toast'
 import { 
   showApiError, 
@@ -106,6 +109,9 @@ interface UploadedVideo {
 }
 
 export default function AdminPage() {
+  // Organization context
+  const { currentOrganization, loading: orgLoading } = useRequireOrganization()
+  
   // Data state
   const [stats, setStats] = useState<EvaluationStats | null>(null)
   const [evaluationStatus, setEvaluationStatus] = useState<any>(null)
@@ -126,6 +132,7 @@ export default function AdminPage() {
   const [selectedExperimentForProlific, setSelectedExperimentForProlific] = useState<Experiment | null>(null)
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null)
   const [selectedExperiment, setSelectedExperiment] = useState<string | null>(null)
+  const [includeAnonymous, setIncludeAnonymous] = useState(false)
 
   // Check if Stack Auth is configured (client-side check)
   const isStackAuthConfigured = typeof window !== 'undefined' && 
@@ -133,14 +140,21 @@ export default function AdminPage() {
     process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY
 
   const fetchAllData = useCallback(async () => {
+    if (!currentOrganization) {
+      return;
+    }
+    
     try {
-      const groupParam = selectedGroup ? `?group=${encodeURIComponent(selectedGroup)}` : ''
+      const groupParam = selectedGroup ? `group=${encodeURIComponent(selectedGroup)}&` : ''
+      const anonParam = `includeAnonymous=${includeAnonymous}`
+      const queryString = `?${groupParam}${anonParam}`
+      
       const [statsRes, evalStatusRes, perfRes, expRes, progressRes] = await Promise.all([
-        fetch(`/api/submission-stats${groupParam}`),
-        fetch('/api/submission-status'),
-        fetch(`/api/model-performance${groupParam}`),
-        fetch('/api/experiments'),
-        fetch('/api/two-video-comparison-progress')
+        fetch(`/api/organizations/${currentOrganization.id}/submission-stats${queryString}`),
+        fetch(`/api/organizations/${currentOrganization.id}/submission-status${queryString}`),
+        fetch(`/api/organizations/${currentOrganization.id}/model-performance${queryString}`),
+        fetch(`/api/organizations/${currentOrganization.id}/experiments${queryString}`),
+        fetch(`/api/organizations/${currentOrganization.id}/two-video-comparison-progress${queryString}`)
       ])
       
       // Check for successful responses and handle errors gracefully
@@ -155,7 +169,8 @@ export default function AdminPage() {
       setStats(statsData)
       setEvaluationStatus(evalStatusData)
       setPerformance(Array.isArray(perfData) ? perfData : [])
-      setExperiments(Array.isArray(expData) ? expData : [])
+      // Handle organization experiments response structure
+      setExperiments(expData?.experiments ? expData.experiments : (Array.isArray(expData) ? expData : []))
       setComparisonProgress(Array.isArray(progressData) ? progressData : [])
       
       // Log any failed requests
@@ -178,25 +193,36 @@ export default function AdminPage() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [selectedGroup])
+  }, [currentOrganization, selectedGroup, includeAnonymous])
 
   useEffect(() => {
-    fetchAllData()
-  }, [selectedGroup, fetchAllData])
+    if (currentOrganization) {
+      fetchAllData()
+    }
+  }, [currentOrganization, selectedGroup, includeAnonymous, fetchAllData])
   
   useEffect(() => {
-    const dataInterval = setInterval(fetchAllData, 60000) // Refresh every 60 seconds
+    if (!currentOrganization) return;
+    
+    const dataInterval = setInterval(() => {
+      if (currentOrganization) {
+        fetchAllData()
+      }
+    }, 60000) // Refresh every 60 seconds
     
     return () => {
       clearInterval(dataInterval)
     }
-  }, [fetchAllData])
+  }, [currentOrganization, fetchAllData])
 
-  const fetchVideoLibrary = async () => {
+  const fetchVideoLibrary = useCallback(async () => {
+    if (!currentOrganization) return;
+    
     try {
-      const response = await fetch('/api/videos')
+      const response = await fetch(`/api/organizations/${currentOrganization.id}/videos`)
       if (response.ok) {
-        const videos = await response.json()
+        const data = await response.json()
+        const videos = data.videos || []
         const videosWithDates = videos.map((video: any) => ({
           ...video,
           uploadedAt: new Date(video.uploadedAt),
@@ -208,11 +234,13 @@ export default function AdminPage() {
     } catch (error) {
       console.error('Error fetching video library:', error)
     }
-  }
+  }, [currentOrganization])
 
   useEffect(() => {
-    fetchVideoLibrary()
-  }, [])
+    if (currentOrganization) {
+      fetchVideoLibrary()
+    }
+  }, [currentOrganization, fetchVideoLibrary])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -401,6 +429,20 @@ export default function AdminPage() {
     )
   }
 
+  // Show loading state while organization is loading
+  if (orgLoading || !currentOrganization) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">
+            {orgLoading ? 'Loading organization...' : 'No organization selected'}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -414,7 +456,7 @@ export default function AdminPage() {
         />
         
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Admin Dashboard</h1>
             <p className="text-muted-foreground mt-1">
@@ -446,6 +488,23 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {/* Controls */}
+        <div className="flex items-center gap-6 mb-8 p-4 bg-muted/50 rounded-lg">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="include-anonymous"
+              checked={includeAnonymous}
+              onCheckedChange={setIncludeAnonymous}
+            />
+            <Label htmlFor="include-anonymous" className="text-sm font-medium">
+              Include Anonymous Users
+              <span className="text-muted-foreground text-xs block">
+                {includeAnonymous ? 'Showing all users (Prolific + Anonymous)' : 'Prolific users only'}
+              </span>
+            </Label>
+          </div>
+        </div>
+
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-2 lg:grid-cols-6">
@@ -465,6 +524,7 @@ export default function AdminPage() {
               loading={refreshing}
               selectedGroup={selectedGroup}
               onGroupChange={setSelectedGroup}
+              includeAnonymous={includeAnonymous}
             />
             <ProgressTracker 
               stats={stats}
@@ -526,11 +586,12 @@ export default function AdminPage() {
               onRefresh={fetchAllData}
               selectedExperiment={selectedExperiment}
               onExperimentChange={setSelectedExperiment}
+              currentOrganization={currentOrganization}
             />
           </TabsContent>
           
           <TabsContent value="demographics">
-            <DemographicsDashboard />
+            <DemographicsDashboard currentOrganization={currentOrganization} />
           </TabsContent>
           
           <TabsContent value="tools">

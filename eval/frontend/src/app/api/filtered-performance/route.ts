@@ -4,10 +4,27 @@ import { Prisma } from '@prisma/client'
 
 export async function POST(request: NextRequest) {
   try {
-    const { filters, selectedExperiment, includeAnonymous } = await request.json()
+    const { filters, selectedExperiment, includeAnonymous, organizationId } = await request.json()
+    
+    // If organizationId is provided and selectedExperiment is specified, 
+    // verify the experiment belongs to the organization
+    if (organizationId && selectedExperiment) {
+      const experiment = await prisma.experiment.findFirst({
+        where: {
+          id: selectedExperiment,
+          organizationId,
+          archived: false
+        }
+      })
+      
+      if (!experiment) {
+        // Experiment doesn't belong to this organization or doesn't exist
+        return NextResponse.json([])
+      }
+    }
     
     // Build where clause based on whether to include anonymous participants
-    const whereClause = includeAnonymous ? {
+    let whereClause: any = includeAnonymous ? {
       status: {
         not: 'returned'  // Always exclude returned participants
       }
@@ -28,6 +45,23 @@ export async function POST(request: NextRequest) {
       ]
     }
     
+    // Add organization filtering to participant query if provided
+    if (organizationId) {
+      if (whereClause.AND) {
+        whereClause.AND.push({
+          experiment: {
+            organizationId,
+            archived: false
+          }
+        })
+      } else {
+        whereClause.experiment = {
+          organizationId,
+          archived: false
+        }
+      }
+    }
+    
     // First, get participants that match the demographic filters
     const participants = await prisma.participant.findMany({
       where: whereClause,
@@ -46,7 +80,13 @@ export async function POST(request: NextRequest) {
     let validExperimentIds: string[] = []
     if (filters.experimentGroup && filters.experimentGroup !== 'all' && filters.experimentGroup !== '') {
       const groupExperiments = await prisma.experiment.findMany({
-        where: { group: filters.experimentGroup },
+        where: { 
+          group: filters.experimentGroup,
+          ...(organizationId && { 
+            organizationId,
+            archived: false 
+          })
+        },
         select: { id: true }
       })
       validExperimentIds = groupExperiments.map(exp => exp.id)

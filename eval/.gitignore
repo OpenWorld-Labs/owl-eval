@@ -1,14 +1,4 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-.venv
-*.egg-info/
+# Build artifacts
 dist/
 build/
 
@@ -55,11 +45,7 @@ logs/
 checkpoints/
 models/weights/
 
-# Jupyter
-.ipynb_checkpoints/
-
 # Testing
-.pytest_cache/
 .coverage
 htmlcov/
 

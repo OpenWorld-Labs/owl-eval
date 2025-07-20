@@ -13,7 +13,7 @@ export async function GET(
     }
 
     const { studyId } = await params;
-    const data = await prolificService.getSubmissions(studyId);
+    const data = await prolificService.instance.getSubmissions(studyId);
     return NextResponse.json(data);
 
   } catch (error) {
@@ -41,7 +41,7 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
-    const results = await prolificService.processSubmissions({
+    const results = await prolificService.instance.processSubmissions({
       action,
       submissionIds,
       rejectionReason

@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Study ID is required' }, { status: 400 });
     }
 
-    const result = await prolificService.syncStudyWithDatabase(studyId);
+    const result = await prolificService.instance.syncStudyWithDatabase(studyId);
 
     return NextResponse.json({
       success: true,

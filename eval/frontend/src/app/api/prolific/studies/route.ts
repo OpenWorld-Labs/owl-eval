@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { experimentId, title, description, reward, totalParticipants } = body;
 
-    const prolificStudy = await prolificService.createStudy({
+    const prolificStudy = await prolificService.instance.createStudy({
       experimentId,
       title,
       description,
@@ -37,13 +37,13 @@ export async function POST(req: NextRequest) {
 export async function GET() {
   try {
     // Get experiments with Prolific studies
-    const experiments = await prolificService.getExperimentsWithProlificStudies();
+    const experiments = await prolificService.instance.getExperimentsWithProlificStudies();
 
     // Fetch study details from Prolific
     const studies = await Promise.all(
       experiments.map(async (exp) => {
         try {
-          const study = await prolificService.getStudy(exp.prolificStudyId!);
+          const study = await prolificService.instance.getStudy(exp.prolificStudyId!);
           return {
             experimentId: exp.id,
             experimentName: exp.name,

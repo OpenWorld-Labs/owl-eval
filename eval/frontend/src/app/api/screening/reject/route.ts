@@ -39,14 +39,14 @@ export async function POST(request: NextRequest) {
       try {
         // Find the Prolific submission for this participant
         const studyId = participant.experiment.prolificStudyId
-        const submissionsData = await prolificService.getSubmissions(studyId)
+        const submissionsData = await prolificService.instance.getSubmissions(studyId)
         const submission = submissionsData.results.find(
           (sub: any) => sub['Participant id'] === participant.prolificId
         )
 
         if (submission) {
           // Reject the submission on Prolific
-          const rejectionResult = await prolificService.processSubmissions({
+          const rejectionResult = await prolificService.instance.processSubmissions({
             action: 'reject',
             submissionIds: [submission['Submission id']],
             rejectionReason: reason || 'Failed gold-standard items'

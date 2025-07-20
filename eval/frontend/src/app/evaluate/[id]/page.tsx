@@ -278,8 +278,6 @@ export default function EvaluatePage() {
         setComparison(comparisonData)
         setEvaluationMode('comparison')
 
-        // Debug: log the normalized comparison object
-        console.log('Loaded comparison:', comparisonData)
         if (!comparisonData.scenario_metadata) {
           console.warn('scenario_metadata is missing for comparison:', comparisonData.comparison_id)
         }
@@ -529,7 +527,6 @@ export default function EvaluatePage() {
   useEffect(() => {
     if (comparison || videoTask) {
       const timer = setTimeout(() => {
-        console.log('Forcing video loaded states to true')
         setVideoLoadedA(true)
         if (comparison) setVideoLoadedB(true) // Only set B for comparison mode
       }, 3000) // 3 seconds should be enough for videos to load
@@ -540,7 +537,6 @@ export default function EvaluatePage() {
 
   // Set up video event listeners for ReactPlayer A
   const handlePlayerAReady = () => {
-    console.log('Player A ready')
     setVideoLoadedA(true)
     if (playerARef.current) {
       const player = playerARef.current.getInternalPlayer()
@@ -557,17 +553,14 @@ export default function EvaluatePage() {
   }
 
   const handlePlayerAPlay = () => {
-    console.log('Player A started playing')
     setPlayingA(true)
   }
 
   const handlePlayerAPause = () => {
-    console.log('Player A paused')
     setPlayingA(false)
   }
 
   const handlePlayerADuration = (duration: number) => {
-    console.log('Player A duration:', duration)
     setDurationA(duration)
   }
 
@@ -577,7 +570,6 @@ export default function EvaluatePage() {
 
   // Set up video event listeners for ReactPlayer B
   const handlePlayerBReady = () => {
-    console.log('Player B ready')
     setVideoLoadedB(true)
     if (playerBRef.current) {
       const player = playerBRef.current.getInternalPlayer()
@@ -594,17 +586,14 @@ export default function EvaluatePage() {
   }
 
   const handlePlayerBPlay = () => {
-    console.log('Player B started playing')
     setPlayingB(true)
   }
 
   const handlePlayerBPause = () => {
-    console.log('Player B paused')
     setPlayingB(false)
   }
 
   const handlePlayerBDuration = (duration: number) => {
-    console.log('Player B duration:', duration)
     setDurationB(duration)
   }
 
@@ -788,7 +777,6 @@ export default function EvaluatePage() {
         setCurrentTimeB(0)
       }
     }
-    console.log('Videos restarted')
   }, [playerARef, playerBRef]);
 
   // Wrap toggleSync in useCallback
@@ -872,9 +860,6 @@ export default function EvaluatePage() {
           session_id: sessionId
         };
 
-        console.log('Single video evaluation payload:', payload);
-        console.log('VideoTask object:', videoTask);
-        console.log('Responses object:', responses);
 
         // Handle single video evaluation submission
         submitResponse = await fetch('/api/submit-single-video-evaluation', {

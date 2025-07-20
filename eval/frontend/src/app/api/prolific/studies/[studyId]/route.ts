@@ -13,7 +13,7 @@ export async function GET(
     }
 
     const { studyId } = await params;
-    const study = await prolificService.getStudy(studyId);
+    const study = await prolificService.instance.getStudy(studyId);
     return NextResponse.json(study);
 
   } catch (error) {
@@ -37,7 +37,7 @@ export async function PUT(
     const body = await req.json();
     const { action } = body;
 
-    const updatedStudy = await prolificService.updateStudyStatus(studyId, { action });
+    const updatedStudy = await prolificService.instance.updateStudyStatus(studyId, { action });
     return NextResponse.json(updatedStudy);
 
   } catch (error) {

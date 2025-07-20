@@ -21,7 +21,6 @@ export async function GET(
     const videoPath = path.join('/')
     const bucketName = process.env.TIGRIS_BUCKET_NAME!
     
-    console.log(`Proxying video: ${bucketName}/${videoPath}`)
     
     // Get object from Tigris
     const command = new GetObjectCommand({

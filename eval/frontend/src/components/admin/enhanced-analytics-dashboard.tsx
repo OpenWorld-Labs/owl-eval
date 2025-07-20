@@ -102,6 +102,13 @@ interface EnhancedAnalyticsProps {
   onRefresh?: () => void
   selectedExperiment?: string | null
   onExperimentChange?: (experimentId: string) => void
+  currentOrganization?: {
+    id: string
+    name: string
+    slug: string
+    description?: string
+    role: string
+  } | null
 }
 
 export function EnhancedAnalyticsDashboard({ 
@@ -111,7 +118,8 @@ export function EnhancedAnalyticsDashboard({
   experiments = [],
   onRefresh,
   selectedExperiment,
-  onExperimentChange
+  onExperimentChange,
+  currentOrganization
 }: EnhancedAnalyticsProps) {
   const [participants, setParticipants] = useState<ParticipantDemographics[]>([])
   const [allParticipants, setAllParticipants] = useState<ParticipantDemographics[]>([])
@@ -136,9 +144,11 @@ export function EnhancedAnalyticsDashboard({
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const fetchDemographicsData = useCallback(async () => {
+    if (!currentOrganization) return;
+    
     try {
       setDemographicsLoading(true)
-      const demographicsResponse = await fetch(`/api/demographics?includeAnonymous=${includeAnonymous}`)
+      const demographicsResponse = await fetch(`/api/demographics?includeAnonymous=${includeAnonymous}&organizationId=${currentOrganization.id}`)
       if (!demographicsResponse.ok) {
         throw new Error('Failed to fetch demographics data')
       }
@@ -197,7 +207,7 @@ export function EnhancedAnalyticsDashboard({
     } finally {
       setDemographicsLoading(false)
     }
-  }, [selectedGroup, includeAnonymous, experiments, filters.ageMin, filters.ageMax])
+  }, [selectedGroup, includeAnonymous, experiments, filters.ageMin, filters.ageMax, currentOrganization])
 
   // Apply local filters immediately (for participant count updates)
   const applyLocalFilters = useCallback(() => {
@@ -240,25 +250,46 @@ export function EnhancedAnalyticsDashboard({
 
   // Debounced API call for performance data
   const fetchPerformanceData = useCallback(async () => {
+    if (!currentOrganization) {
+      console.log('🔍 Analytics: No current organization, clearing performance data');
+      setFilteredPerformance([]);
+      return;
+    }
+    
+    console.log('🔍 Analytics: Fetching performance data', { 
+      selectedExperiment, 
+      filters, 
+      includeAnonymous,
+      organizationId: currentOrganization.id
+    });
+    
     try {
-      const performanceResponse = await fetch('/api/filtered-performance', {
+      const performanceResponse = await fetch(`/api/filtered-performance`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           filters,
           selectedExperiment: selectedExperiment,
-          includeAnonymous: includeAnonymous
+          includeAnonymous: includeAnonymous,
+          organizationId: currentOrganization.id
         })
       })
       if (performanceResponse.ok) {
         const performanceData = await performanceResponse.json()
+        console.log('🔍 Analytics: Received performance data', { 
+          dataLength: performanceData?.length || 0,
+          data: performanceData 
+        });
         setFilteredPerformance(performanceData || [])
+      } else {
+        console.log('🔍 Analytics: Performance response not OK', performanceResponse.status);
+        setFilteredPerformance([])
       }
     } catch (error) {
       console.error('Error fetching filtered performance data:', error)
       setFilteredPerformance([])
     }
-  }, [filters, selectedExperiment, includeAnonymous]) // Remove participants dependency
+  }, [filters, selectedExperiment, includeAnonymous, currentOrganization])
 
   // Debounced version of performance data fetching
   const debouncedFetchPerformanceData = useCallback(() => {
@@ -374,15 +405,44 @@ export function EnhancedAnalyticsDashboard({
     fetchDemographicsData()
   }, [fetchDemographicsData])
 
-  // Auto-select latest experiment when experiments are loaded
+  // Auto-select latest experiment when experiments are loaded, or clear when no experiments
   useEffect(() => {
-    if (experiments.length > 0 && !selectedExperiment && onExperimentChange) {
-      const sortedExperiments = [...experiments].sort((a, b) => 
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      )
-      onExperimentChange(sortedExperiments[0].id)
+    console.log('🔍 Analytics: Experiment selection logic', { 
+      experimentsLength: experiments.length, 
+      selectedExperiment,
+      hasOnExperimentChange: !!onExperimentChange 
+    });
+    
+    if (onExperimentChange) {
+      if (experiments.length > 0 && !selectedExperiment) {
+        // Auto-select latest experiment
+        const sortedExperiments = [...experiments].sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+        console.log('🔍 Analytics: Auto-selecting experiment:', sortedExperiments[0].id);
+        onExperimentChange(sortedExperiments[0].id)
+      } else if (experiments.length === 0 && selectedExperiment) {
+        // Clear selection when no experiments available
+        console.log('🔍 Analytics: Clearing experiment selection (no experiments available)');
+        onExperimentChange('')
+      }
     }
   }, [experiments.length, onExperimentChange, experiments, selectedExperiment])
+
+  // Clear analytics data when no experiments are available
+  useEffect(() => {
+    console.log('🔍 Analytics: Data clearing logic', { 
+      experimentsLength: experiments.length,
+      currentPerformanceDataLength: filteredPerformance.length,
+      currentParticipantsLength: participants.length 
+    });
+    
+    if (experiments.length === 0) {
+      console.log('🔍 Analytics: Clearing analytics data (no experiments)');
+      setFilteredPerformance([])
+      setParticipants([])
+    }
+  }, [experiments.length, filteredPerformance.length, participants.length])
 
   // Cleanup timeout on unmount
   useEffect(() => {

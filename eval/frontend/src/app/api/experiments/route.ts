@@ -105,9 +105,158 @@ async function fetchExperimentsWithRetry(retryCount = 0): Promise<any[]> {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const experiments = await fetchExperimentsWithRetry();
+    // Check admin authentication
+    const authResult = await requireAdmin(request);
+    if (authResult instanceof NextResponse) {
+      return authResult;
+    }
+
+    // Get user's organization
+    let organizationId = null;
+    if (authResult.user?.id) {
+      try {
+        const { getUserOrganizations } = await import('@/lib/organization');
+        const organizations = await getUserOrganizations(authResult.user.id);
+        organizationId = organizations[0]?.organization?.id || null;
+      } catch (error) {
+        console.warn('Could not get user organization for experiment fetching:', error);
+      }
+    }
+
+    // Fetch experiments for the user's organization (or all if no organization)
+    const experimentsRaw = await prisma.experiment.findMany({
+      where: organizationId ? { organizationId } : {},
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        description: true,
+        status: true,
+        archived: true,
+        archivedAt: true,
+        group: true,
+        prolificStudyId: true,
+        evaluationMode: true,
+        config: true,
+        createdAt: true,
+        updatedAt: true,
+        startedAt: true,
+        completedAt: true,
+        organizationId: true,
+        _count: {
+          select: {
+            twoVideoComparisonTasks: true,
+            singleVideoEvaluationTasks: true,
+          }
+        },
+        participants: {
+          select: {
+            id: true,
+            prolificId: true,
+            status: true
+          }
+        },
+        twoVideoComparisonSubmissions: {
+          where: {
+            status: 'completed'
+          },
+          select: {
+            participantId: true,
+            participant: {
+              select: {
+                id: true,
+                prolificId: true,
+                status: true
+              }
+            }
+          }
+        },
+        singleVideoEvaluationSubmissions: {
+          where: {
+            status: 'completed'
+          },
+          select: {
+            participantId: true,
+            participant: {
+              select: {
+                id: true,
+                prolificId: true,
+                status: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Process experiments to compute correct counts based on experiment type
+    const experiments = experimentsRaw.map(exp => {
+      // Debug logging for winter-2025-one
+      if (exp.slug === 'winter-2025-one') {
+        console.log('\n=== WINTER-2025-ONE DEBUG ===');
+        console.log('Experiment prolificStudyId:', exp.prolificStudyId);
+        console.log('All participants in winter-2025-one:');
+        exp.participants.forEach((p, i) => {
+          console.log(`  ${i+1}. ID: ${p.id}`);
+          console.log(`     prolificId: ${p.prolificId}`);
+          console.log(`     status: ${p.status}`);
+          console.log(`     isAnon: ${p.prolificId?.startsWith('anon-') || false}`);
+        });
+      }
+
+      // Determine valid participant filter based on experiment type - match CLI logic exactly
+      const participantStatusFilter = exp.prolificStudyId 
+        ? ['approved']  // For Prolific experiments, only count approved
+        : ['active', 'completed', 'approved'];  // For non-Prolific experiments, count all valid statuses
+        
+      const validParticipants = exp.participants.filter(participant => 
+        participantStatusFilter.includes(participant.status) && 
+        participant.prolificId &&
+        !participant.prolificId.startsWith('anon-')  // Exclude anonymous participants
+      );
+
+      if (exp.slug === 'winter-2025-one') {
+        console.log('Filter criteria:');
+        console.log('  statusFilter:', participantStatusFilter);
+        console.log('  requireProlificId: true');
+        console.log('  excludeAnonymous: true');
+        console.log('Valid participants after filtering:');
+        validParticipants.forEach((p, i) => {
+          console.log(`  ${i+1}. ID: ${p.id}, prolificId: ${p.prolificId}, status: ${p.status}`);
+        });
+        console.log('Final count:', validParticipants.length);
+        console.log('=== END DEBUG ===\n');
+      }
+
+      const validParticipantIds = validParticipants.map(p => p.id);
+
+      // Count submissions from valid participants only
+      const validTwoVideoSubmissions = exp.twoVideoComparisonSubmissions.filter(sub =>
+        validParticipantIds.includes(sub.participantId)
+      );
+
+      const validSingleVideoSubmissions = exp.singleVideoEvaluationSubmissions.filter(sub =>
+        validParticipantIds.includes(sub.participantId)
+      );
+
+      return {
+        ...exp,
+        participants: undefined,  // Remove participants data from response
+        twoVideoComparisonSubmissions: undefined,  // Remove submissions data from response
+        singleVideoEvaluationSubmissions: undefined,  // Remove submissions data from response
+        _count: {
+          twoVideoComparisonTasks: exp._count.twoVideoComparisonTasks,
+          singleVideoEvaluationTasks: exp._count.singleVideoEvaluationTasks,
+          participants: validParticipants.length,
+          twoVideoComparisonSubmissions: validTwoVideoSubmissions.length,
+          singleVideoEvaluationSubmissions: validSingleVideoSubmissions.length,
+        }
+      };
+    });
+    
     return NextResponse.json(experiments);
   } catch (error) {
     console.error('Error fetching experiments:', error);
@@ -126,6 +275,18 @@ export async function POST(request: NextRequest) {
   const authResult = await requireAdmin(request);
   if (authResult instanceof NextResponse) {
     return authResult;
+  }
+
+  // Get user's organization
+  let organizationId = null;
+  if (authResult.user?.id) {
+    try {
+      const { getUserOrganizations } = await import('@/lib/organization');
+      const organizations = await getUserOrganizations(authResult.user.id);
+      organizationId = organizations[0]?.organization?.id || null;
+    } catch (error) {
+      console.warn('Could not get user organization for experiment creation:', error);
+    }
   }
 
   try {
@@ -187,6 +348,7 @@ export async function POST(request: NextRequest) {
       group: group || null,
       status: 'draft',
       evaluationMode: evaluationMode,
+      organizationId,
       config: {
         models: evaluationMode === 'comparison' 
           ? Array.from(new Set([...comparisons.map(c => c.modelA), ...comparisons.map(c => c.modelB)]))

@@ -4,7 +4,6 @@ import { prisma } from '@/lib/prisma';
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
-    console.log('Draft API received data:', data);
     
     const {
       twoVideoComparisonTaskId,

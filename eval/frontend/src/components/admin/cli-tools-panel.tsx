@@ -37,61 +37,31 @@ export function CLIToolsPanel({ onCopyCommand, copiedCommand }: CLIToolsPanelPro
 
   const commands = [
     {
-      id: 'generate-content',
-      title: 'Generate Content',
-      description: 'Generate comparison content using the Python backend',
-      icon: <Code className="h-4 w-4" />,
-      category: 'Generation',
-      command: `python scripts/cli.py generate-content \\
-  --models diamond-1b genie-2b \\
-  --scenarios simple_task complex_task \\
-  --output-dir data/experiments/my-experiment`,
-      explanation: 'This command generates evaluation content for comparing different models across specified scenarios.'
-    },
-    {
-      id: 'upload-content',
-      title: 'Upload Content to Library',
-      description: 'Upload generated content to the library for use in experiments',
-      icon: <Upload className="h-4 w-4" />,
-      category: 'Management',
-      command: 'npm run upload-content --dir ./data/experiments/my-experiment',
-      explanation: 'Batch upload content files from a directory to your evaluation library.'
-    },
-    {
       id: 'create-interactive',
       title: 'Create Experiment (Interactive)',
       description: 'Interactive experiment creation with prompts',
       icon: <Terminal className="h-4 w-4" />,
       category: 'Experiments',
-      command: 'npm run experiment create',
-      explanation: 'Launch interactive mode to create experiments with step-by-step guidance.'
-    },
-    {
-      id: 'create-options',
-      title: 'Create Experiment (With Options)',
-      description: 'Create experiment with predefined options',
-      icon: <Settings className="h-4 w-4" />,
-      category: 'Experiments',
-      command: 'npm run experiment create --name "Diamond vs Genie Study" --slug "diamond-vs-genie"',
-      explanation: 'Create experiments programmatically with specific configuration options.'
+      command: './evalctl create',
+      explanation: 'Launch interactive mode to create experiments with step-by-step guidance and organization support.'
     },
     {
       id: 'list',
       title: 'List Experiments',
-      description: 'List all experiments',
+      description: 'List all experiments in your organization',
       icon: <Database className="h-4 w-4" />,
       category: 'Management',
-      command: 'npm run experiment list',
-      explanation: 'Display all experiments with their current status and statistics.'
+      command: './evalctl list',
+      explanation: 'Display all experiments in your organization with their current status and statistics.'
     },
     {
       id: 'stats',
       title: 'Experiment Statistics',
-      description: 'Get experiment statistics',
+      description: 'Get detailed experiment statistics',
       icon: <Database className="h-4 w-4" />,
       category: 'Management',
-      command: 'npm run experiment stats [slug]',
-      explanation: 'View detailed statistics for a specific experiment or all experiments.'
+      command: './evalctl stats [slug]',
+      explanation: 'View detailed statistics for a specific experiment including participants, evaluations, and completion times.'
     },
     {
       id: 'launch',
@@ -99,8 +69,17 @@ export function CLIToolsPanel({ onCopyCommand, copiedCommand }: CLIToolsPanelPro
       description: 'Launch experiment for participants',
       icon: <Zap className="h-4 w-4" />,
       category: 'Experiments',
-      command: 'npm run experiment launch [slug]',
-      explanation: 'Start an experiment and make it available for participant evaluations.'
+      command: './evalctl launch [slug]',
+      explanation: 'Activate an experiment and make it available for participant evaluations.'
+    },
+    {
+      id: 'complete',
+      title: 'Complete Experiment',
+      description: 'Mark experiment as completed',
+      icon: <Check className="h-4 w-4" />,
+      category: 'Experiments',
+      command: './evalctl complete [slug]',
+      explanation: 'Mark an experiment as completed and stop accepting new participants.'
     },
     {
       id: 'launch-prolific',
@@ -108,21 +87,137 @@ export function CLIToolsPanel({ onCopyCommand, copiedCommand }: CLIToolsPanelPro
       description: 'Launch experiment and create Prolific study',
       icon: <Users className="h-4 w-4" />,
       category: 'Prolific',
-      command: 'npm run experiment launch [slug] --prolific',
+      command: './evalctl launch [slug] --prolific',
       explanation: 'Launch experiment and automatically create a Prolific study for human evaluation recruitment.'
     },
     {
-      id: 'launch-prolific-custom',
-      title: 'Launch with Custom Prolific Settings',
-      description: 'Launch with custom Prolific study parameters',
-      icon: <DollarSign className="h-4 w-4" />,
+      id: 'prolific-create',
+      title: 'Create Prolific Study',
+      description: 'Create Prolific study for existing experiment',
+      icon: <Users className="h-4 w-4" />,
       category: 'Prolific',
-      command: `npm run experiment launch [slug] --prolific \\
-  --prolific-title "Custom Study Title" \\
-  --prolific-description "Custom description" \\
-  --prolific-reward 10.00 \\
-  --prolific-participants 100`,
-      explanation: 'Launch experiment with customized Prolific study settings including title, description, reward amount, and participant count.'
+      command: `./evalctl prolific:create [slug] \\
+  --title "Custom Study Title" \\
+  --description "Study description" \\
+  --reward 8.00 --participants 50`,
+      explanation: 'Create a customized Prolific study with specific title, description, reward amount, and participant count.'
+    },
+    {
+      id: 'prolific-sync',
+      title: 'Sync Prolific Data',
+      description: 'Sync participant demographics from Prolific',
+      icon: <Users className="h-4 w-4" />,
+      category: 'Prolific',
+      command: './evalctl prolific:sync [study-id]',
+      explanation: 'Sync participant demographics and submission data from Prolific to your database.'
+    },
+    {
+      id: 'list-videos',
+      title: 'List Video Library',
+      description: 'List all videos in the video library',
+      icon: <Upload className="h-4 w-4" />,
+      category: 'Management',
+      command: './evalctl list-videos',
+      explanation: 'Display all videos in your organization\'s video library with metadata and usage information.'
+    },
+    {
+      id: 'create-bulk',
+      title: 'Create Bulk Experiments',
+      description: 'Create multiple experiments using matrix mode',
+      icon: <Settings className="h-4 w-4" />,
+      category: 'Experiments',
+      command: './evalctl create-bulk --matrix-file experiments.json',
+      explanation: 'Create multiple experiments at once using a configuration matrix for systematic testing.'
+    },
+    {
+      id: 'db-tables',
+      title: 'List Database Tables',
+      description: 'List all tables in the database',
+      icon: <Database className="h-4 w-4" />,
+      category: 'Development',
+      command: './evalctl db:tables',
+      explanation: 'Display all database tables with their names and descriptions.'
+    },
+    {
+      id: 'db-count',
+      title: 'Count Database Records',
+      description: 'Count records in database tables',
+      icon: <Database className="h-4 w-4" />,
+      category: 'Development',
+      command: './evalctl db:count',
+      explanation: 'Display record counts for all main database tables or count specific table with --table flag.'
+    },
+    {
+      id: 'bulk-edit-videos',
+      title: 'Bulk Edit Videos',
+      description: 'Bulk edit video metadata',
+      icon: <Settings className="h-4 w-4" />,
+      category: 'Management',
+      command: './evalctl bulk-edit-videos --tag "new-tag"',
+      explanation: 'Bulk edit metadata for videos in your library, such as adding tags or updating descriptions.'
+    },
+    {
+      id: 'assign-videos',
+      title: 'Auto-assign Videos',
+      description: 'Auto-assign videos to experiment comparisons',
+      icon: <Settings className="h-4 w-4" />,
+      category: 'Management',
+      command: './evalctl assign-videos [slug] --auto',
+      explanation: 'Automatically assign videos from your library to experiment comparison tasks.'
+    },
+    {
+      id: 'create-video-tasks',
+      title: 'Create Video Tasks',
+      description: 'Create video tasks for single video evaluation',
+      icon: <Upload className="h-4 w-4" />,
+      category: 'Experiments',
+      command: './evalctl create-video-tasks [slug]',
+      explanation: 'Create single video evaluation tasks for experiments focused on individual video assessment.'
+    },
+    {
+      id: 'prolific-list',
+      title: 'List Prolific Studies',
+      description: 'List all Prolific studies',
+      icon: <Users className="h-4 w-4" />,
+      category: 'Prolific',
+      command: './evalctl prolific:list',
+      explanation: 'Display all Prolific studies associated with your experiments.'
+    },
+    {
+      id: 'prolific-status',
+      title: 'Prolific Study Status',
+      description: 'Get status of a Prolific study',
+      icon: <Users className="h-4 w-4" />,
+      category: 'Prolific',
+      command: './evalctl prolific:status [study-id]',
+      explanation: 'Check the current status, participant count, and completion rate of a Prolific study.'
+    },
+    {
+      id: 'debug-progress',
+      title: 'Debug Progress',
+      description: 'Debug progress calculation for an experiment',
+      icon: <Code className="h-4 w-4" />,
+      category: 'Development',
+      command: './evalctl debug:progress [slug]',
+      explanation: 'Debug and troubleshoot experiment progress calculation issues.'
+    },
+    {
+      id: 'fix-config',
+      title: 'Fix Configuration',
+      description: 'Fix experiment configuration',
+      icon: <Settings className="h-4 w-4" />,
+      category: 'Development',
+      command: './evalctl fix-config [slug] --evaluations-per-comparison 5',
+      explanation: 'Fix or update experiment configuration parameters like evaluations per comparison.'
+    },
+    {
+      id: 'storage-list',
+      title: 'List Cloud Storage',
+      description: 'List objects in cloud storage',
+      icon: <Upload className="h-4 w-4" />,
+      category: 'Development',
+      command: './evalctl storage:list --detailed',
+      explanation: 'List all objects in cloud storage with size, modification date, and storage class information.'
     },
     {
       id: 'studio',
@@ -135,22 +230,28 @@ export function CLIToolsPanel({ onCopyCommand, copiedCommand }: CLIToolsPanelPro
     }
   ]
 
-  const categories = ['Generation', 'Management', 'Experiments', 'Prolific', 'Development']
+  const categories = ['Management', 'Experiments', 'Prolific', 'Development']
 
   const workflowExample = `#!/bin/bash
-# Generate content
-python scripts/cli.py generate-content --models diamond-1b genie-2b --scenarios simple_task complex_task
+# List videos in library
+./evalctl list-videos
 
-# Upload to library  
-npm run upload-content --dir ./generated-content
-
-# Create experiment
-npm run experiment create --name "Diamond vs Genie World Models" --auto-assign-content
+# Create experiment interactively
+./evalctl create
 
 # Launch experiment with Prolific study
-npm run experiment launch diamond-vs-genie-world-models --prolific \\
-  --prolific-title "Diamond vs Genie World Models Evaluation" \\
-  --prolific-reward 8.00 --prolific-participants 50`
+./evalctl launch my-experiment-slug --prolific \\
+  --prolific-title "World Models Evaluation Study" \\
+  --prolific-reward 8.00 --prolific-participants 50
+
+# Monitor experiment progress
+./evalctl stats my-experiment-slug
+
+# Sync Prolific participant data
+./evalctl prolific:sync 123456789abcdef
+
+# Complete experiment when done
+./evalctl complete my-experiment-slug`
 
   return (
     <Card>
@@ -160,7 +261,7 @@ npm run experiment launch diamond-vs-genie-world-models --prolific \\
           CLI Tools & Commands
         </CardTitle>
         <CardDescription className="text-slate-300">
-          Command-line tools for power users and automation
+          Unified TypeScript CLI for experiment management, Prolific integration, and database operations
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-8">
@@ -224,7 +325,7 @@ npm run experiment launch diamond-vs-genie-world-models --prolific \\
           </div>
           
           <p className="text-sm text-slate-300 mb-4">
-            Complete workflow from content generation to experiment launch:
+            Complete workflow from experiment creation to completion with Prolific integration:
           </p>
           
           <div className="relative">
@@ -248,10 +349,12 @@ npm run experiment launch diamond-vs-genie-world-models --prolific \\
           <div className="mt-4 p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
             <h4 className="text-sm font-medium text-cyan-300 mb-2">Workflow Steps:</h4>
             <ol className="text-sm text-cyan-200 space-y-1">
-              <li>1. Generate evaluation content for multiple models and scenarios</li>
-              <li>2. Upload the generated content to your library</li>
-              <li>3. Create a new experiment with auto-assigned content</li>
-              <li>4. Launch the experiment with automated Prolific study creation</li>
+              <li>1. Check available videos in your library</li>
+              <li>2. Create a new experiment with interactive setup</li>
+              <li>3. Launch the experiment with automated Prolific study creation</li>
+              <li>4. Monitor experiment progress and participant engagement</li>
+              <li>5. Sync participant demographics from Prolific</li>
+              <li>6. Complete the experiment when sufficient data is collected</li>
             </ol>
           </div>
         </div>

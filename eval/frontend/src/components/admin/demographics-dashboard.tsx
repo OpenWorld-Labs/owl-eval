@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { RefreshCw, Users, Globe, MapPin, Briefcase, GraduationCap } from 'lucide-react'
 import { toast } from '@/components/ui/use-toast'
 
@@ -44,15 +46,34 @@ interface DemographicsSummary {
   countryDistribution: Record<string, number>
 }
 
-export function DemographicsDashboard() {
+interface DemographicsDashboardProps {
+  currentOrganization?: {
+    id: string
+    name: string
+    slug: string
+    description?: string
+    role: string
+  } | null
+}
+
+export function DemographicsDashboard({ currentOrganization }: DemographicsDashboardProps) {
   const [participants, setParticipants] = useState<ParticipantDemographics[]>([])
   const [summary, setSummary] = useState<DemographicsSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [includeAnonymous, setIncludeAnonymous] = useState(false)
 
-  const fetchDemographicsData = async () => {
+  const fetchDemographicsData = useCallback(async () => {
+    if (!currentOrganization) {
+      setParticipants([])
+      setSummary(null)
+      setLoading(false)
+      setRefreshing(false)
+      return
+    }
+    
     try {
-      const response = await fetch('/api/demographics')
+      const response = await fetch(`/api/demographics?organizationId=${currentOrganization.id}&includeAnonymous=${includeAnonymous}`)
       if (!response.ok) {
         throw new Error('Failed to fetch demographics data')
       }
@@ -70,7 +91,7 @@ export function DemographicsDashboard() {
       setLoading(false)
       setRefreshing(false)
     }
-  }
+  }, [currentOrganization, includeAnonymous])
 
 
   const handleRefresh = async () => {
@@ -80,7 +101,7 @@ export function DemographicsDashboard() {
 
   useEffect(() => {
     fetchDemographicsData()
-  }, [])
+  }, [fetchDemographicsData])
 
   if (loading) {
     return (
@@ -112,16 +133,32 @@ export function DemographicsDashboard() {
             <span className="text-sm">💡 Use the Analytics tab to filter demographics data and see filtered performance metrics</span>
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-4">
+          {/* Include Anonymous Users Toggle */}
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="include-anonymous"
+              checked={includeAnonymous}
+              onCheckedChange={setIncludeAnonymous}
+            />
+            <Label htmlFor="include-anonymous" className="text-sm font-medium">
+              Include Anonymous Users
+            </Label>
+            <div className="text-xs text-muted-foreground">
+              {includeAnonymous ? 'Showing all users (Prolific + Anonymous)' : 'Prolific users only'}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}

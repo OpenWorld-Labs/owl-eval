@@ -23,12 +23,14 @@ model Experiment {
   evaluationMode  String   @default("comparison") // comparison, single_video
   config          Json     // Stores experiment configuration (models, scenarios, parameters)
   createdBy       String?  // Stack Auth user ID
+  organizationId  String?  // Organization this experiment belongs to (temporarily optional for migration)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   startedAt       DateTime?
   completedAt     DateTime?
   archivedAt      DateTime?
   
+  organization                    Organization? @relation(fields: [organizationId], references: [id])
   twoVideoComparisonTasks         TwoVideoComparisonTask[]
   singleVideoEvaluationTasks      SingleVideoEvaluationTask[]
   participants                    Participant[]
@@ -37,6 +39,7 @@ model Experiment {
   
   @@index([slug])
   @@index([evaluationMode])
+  @@index([organizationId])
 }
 
 model TwoVideoComparisonTask {
@@ -125,15 +128,19 @@ model Video {
   groups      String[] // Array of group names
   modelName   String?  // Auto-detected or manually assigned model name
   scenarioId  String?  // Associated scenario if applicable
+  organizationId String? // Organization this video belongs to (nullable for shared videos)
+  isShared    Boolean  @default(false) // Allow shared video library
   uploadedAt  DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  organization                Organization? @relation(fields: [organizationId], references: [id])
   singleVideoEvaluationTasks  SingleVideoEvaluationTask[]
 
   @@index([tags])
   @@index([groups])
   @@index([modelName])
   @@index([scenarioId])
+  @@index([organizationId])
 }
 
 model SingleVideoEvaluationTask {
@@ -175,4 +182,67 @@ model SingleVideoEvaluationSubmission {
   @@index([participantId])
   @@index([experimentId])
   @@index([status])
+}
+
+// Organization Role Enum
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+// Organization Model
+model Organization {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Settings
+  settings    Json     @default("{}")
+  
+  // Stack Auth integration
+  stackTeamId String?  @unique // Maps to Stack Auth team
+  
+  // Relationships
+  members     OrganizationMember[]
+  experiments Experiment[]
+  videos      Video[]
+  invitations OrganizationInvitation[]
+  
+  @@map("organizations")
+}
+
+// Organization Member Model
+model OrganizationMember {
+  id             String           @id @default(cuid())
+  organizationId String
+  stackUserId    String           // Stack Auth user ID
+  role           OrganizationRole @default(MEMBER)
+  joinedAt       DateTime         @default(now())
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([organizationId, stackUserId])
+  @@map("organization_members")
+}
+
+// Organization Invitation Model
+model OrganizationInvitation {
+  id             String           @id @default(cuid())
+  organizationId String
+  email          String
+  role           OrganizationRole @default(MEMBER)
+  token          String           @unique
+  createdAt      DateTime         @default(now())
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([organizationId, email])
+  @@map("organization_invitations")
 }

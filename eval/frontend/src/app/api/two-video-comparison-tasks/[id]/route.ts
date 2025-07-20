@@ -36,16 +36,41 @@ export async function GET(
     
     // Convert Tigris URLs to local proxy URLs
     const convertToProxyUrl = (tigrisUrl: string) => {
-      if (tigrisUrl.includes('t3.storage.dev') || tigrisUrl.includes('fly.storage.tigris.dev')) {
-        // Extract the path after the bucket name
-        const bucketName = process.env.TIGRIS_BUCKET_NAME || 'gary-owl-eval'
-        const urlParts = tigrisUrl.split(`/${bucketName}/`)
-        if (urlParts.length > 1) {
-          const path = urlParts[1]
+      if (tigrisUrl.includes('t3.storage.dev') || tigrisUrl.includes('fly.storage.tigris.dev') || tigrisUrl.includes('.fly.storage.tigris.dev')) {
+        // For URLs like https://gary-owl-eval-dev.fly.storage.tigris.dev/video-library/file.mp4
+        // Extract everything after the domain
+        const bucketName = process.env.TIGRIS_BUCKET_NAME || 'gary-owl-eval-dev'
+        
+        // Try different patterns to extract the path
+        let path = ''
+        
+        // Pattern 1: https://bucket.fly.storage.tigris.dev/path/file.ext
+        if (tigrisUrl.includes('.fly.storage.tigris.dev/')) {
+          const parts = tigrisUrl.split('.fly.storage.tigris.dev/')
+          if (parts.length > 1) {
+            path = parts[1]
+          }
+        }
+        // Pattern 2: https://fly.storage.tigris.dev/bucket/path/file.ext
+        else if (tigrisUrl.includes('fly.storage.tigris.dev/')) {
+          const urlParts = tigrisUrl.split(`/${bucketName}/`)
+          if (urlParts.length > 1) {
+            path = urlParts[1]
+          }
+        }
+        // Pattern 3: https://t3.storage.dev/bucket/path/file.ext
+        else if (tigrisUrl.includes('t3.storage.dev/')) {
+          const urlParts = tigrisUrl.split(`/${bucketName}/`)
+          if (urlParts.length > 1) {
+            path = urlParts[1]
+          }
+        }
+        
+        if (path) {
           return `/api/video/${path}`
         }
       }
-      // Return original URL if not a Tigris URL
+      
       return tigrisUrl
     }
 

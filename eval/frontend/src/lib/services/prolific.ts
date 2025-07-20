@@ -48,7 +48,7 @@ export interface CreateStudyRequest {
 }
 
 export interface StudyActionRequest {
-  action: 'publish' | 'pause' | 'stop';
+  action: 'publish' | 'pause' | 'stop' | 'start' | 'force_reopen';
 }
 
 export interface SubmissionActionRequest {
@@ -67,7 +67,9 @@ export function generateCompletionCode(): string {
 }
 
 export class ProlificService {
-  constructor(private apiToken: string = PROLIFIC_API_TOKEN!) {
+  constructor(private apiToken?: string) {
+    // Get token from parameter or environment at runtime
+    this.apiToken = apiToken || process.env.PROLIFIC_API_TOKEN;
     if (!this.apiToken) {
       throw new Error('Prolific API token not configured');
     }
@@ -276,6 +278,16 @@ export class ProlificService {
         method = 'POST';
         requestBody = { action: 'STOP' };
         break;
+      case 'start':
+        endpoint += 'transition/';
+        method = 'POST';
+        requestBody = { action: 'START' };
+        break;
+      case 'force_reopen':
+        endpoint += 'transition/';
+        method = 'POST';
+        requestBody = { action: 'FORCE_REOPEN' };
+        break;
     }
 
     const updatedStudy = await this.makeRequest<ProlificStudy>(endpoint, {
@@ -412,53 +424,29 @@ export class ProlificService {
 
         console.log(`Demographics for participant ${submission['Participant id']}:`, JSON.stringify(participantInfo, null, 2));
 
-        // Upsert participant with demographic data
-        await prisma.participant.upsert({
-            where: { prolificId: submission['Participant id'] },
-            update: {
-              status: submission['Status'].toLowerCase(),
-              metadata: {
-                demographics: participantInfo || null,
+        // Find or create participant for this specific experiment
+        // First, try to find existing participant for this experiment
+        let participant = await prisma.participant.findFirst({
+          where: {
+            OR: [
+              {
+                prolificId: submission['Participant id'],
+                experimentId: experiment.id
+              },
+              {
                 prolificSubmissionId: submission['Submission id'],
-                submissionStatus: submission['Status'],
-                completedDateTime: submission['Completed at'],
-                startedDateTime: submission['Started at'],
-                studyCode: submission['Study code'],
-                reward: study.reward,
-                submissionReward: submission['Reward'] ? Number(submission['Reward']) : undefined,
-                timeTaken: submission['Time taken'] ? Number(submission['Time taken']) : undefined,
-                isComplete: submission['Is complete'] === 'true' || submission['Is complete'] === '1',
-                bonusPayments: submission['Bonus payments']
-                  ? (() => {
-                      try {
-                        const parsed = JSON.parse(submission['Bonus payments']);
-                        return Array.isArray(parsed) ? parsed.map(Number) : [];
-                      } catch {
-                        return [];
-                      }
-                    })()
-                  : [],
-                totalPayment:
-                  (study.reward || 0) +
-                  ((submission['Bonus payments']
-                    ? (() => {
-                        try {
-                          const parsed = JSON.parse(submission['Bonus payments']);
-                          return Array.isArray(parsed) ? parsed.reduce((a, b) => a + Number(b), 0) : 0;
-                        } catch {
-                          return 0;
-                        }
-                      })()
-                    : 0) || 0),
-                lastSyncedAt: new Date().toISOString()
+                experimentId: experiment.id
               }
-            },
-            create: {
-              prolificId: submission['Participant id'],
-              sessionId: `prolific_${submission['Participant id']}_${Date.now()}`,
-              experimentId: experiment.id,
+            ]
+          }
+        });
+        
+        if (participant) {
+          // Update existing participant for this experiment
+          participant = await prisma.participant.update({
+            where: { id: participant.id },
+            data: {
               status: submission['Status'].toLowerCase(),
-              assignedTwoVideoComparisonTasks: [],
               metadata: {
                 demographics: participantInfo || null,
                 prolificSubmissionId: submission['Submission id'],
@@ -496,6 +484,109 @@ export class ProlificService {
               }
             }
           });
+        } else {
+          // Create new participant for this experiment
+          // Handle case where prolificId might already exist in another experiment
+          try {
+            participant = await prisma.participant.create({
+              data: {
+                prolificId: submission['Participant id'],
+                sessionId: `prolific_${submission['Participant id']}_${experiment.id}_${Date.now()}`,
+                experimentId: experiment.id,
+                status: submission['Status'].toLowerCase(),
+                assignedTwoVideoComparisonTasks: [],
+                metadata: {
+                  demographics: participantInfo || null,
+                  prolificSubmissionId: submission['Submission id'],
+                  submissionStatus: submission['Status'],
+                  completedDateTime: submission['Completed at'],
+                  startedDateTime: submission['Started at'],
+                  studyCode: submission['Study code'],
+                  reward: study.reward,
+                  submissionReward: submission['Reward'] ? Number(submission['Reward']) : undefined,
+                  timeTaken: submission['Time taken'] ? Number(submission['Time taken']) : undefined,
+                  isComplete: submission['Is complete'] === 'true' || submission['Is complete'] === '1',
+                  bonusPayments: submission['Bonus payments']
+                    ? (() => {
+                        try {
+                          const parsed = JSON.parse(submission['Bonus payments']);
+                          return Array.isArray(parsed) ? parsed.map(Number) : [];
+                        } catch {
+                          return [];
+                        }
+                      })()
+                    : [],
+                  totalPayment:
+                    (study.reward || 0) +
+                    ((submission['Bonus payments']
+                      ? (() => {
+                          try {
+                            const parsed = JSON.parse(submission['Bonus payments']);
+                            return Array.isArray(parsed) ? parsed.reduce((a, b) => a + Number(b), 0) : 0;
+                          } catch {
+                            return 0;
+                          }
+                        })()
+                      : 0) || 0),
+                  lastSyncedAt: new Date().toISOString()
+                }
+              }
+            });
+          } catch (error: any) {
+            if (error.code === 'P2002' && error.meta?.target?.includes('prolificId')) {
+              // Unique constraint violation - participant exists in another experiment
+              console.log(`⚠️  Participant ${submission['Participant id']} already exists in another experiment. Creating with unique session ID.`);
+              participant = await prisma.participant.create({
+                data: {
+                  prolificId: null, // Set to null to avoid unique constraint
+                  prolificSubmissionId: submission['Submission id'], // Use submission ID as alternative identifier
+                  sessionId: `prolific_${submission['Participant id']}_${experiment.id}_${Date.now()}`,
+                  experimentId: experiment.id,
+                  status: submission['Status'].toLowerCase(),
+                  assignedTwoVideoComparisonTasks: [],
+                  metadata: {
+                    originalProlificId: submission['Participant id'], // Store original ID in metadata
+                    demographics: participantInfo || null,
+                    prolificSubmissionId: submission['Submission id'],
+                    submissionStatus: submission['Status'],
+                    completedDateTime: submission['Completed at'],
+                    startedDateTime: submission['Started at'],
+                    studyCode: submission['Study code'],
+                    reward: study.reward,
+                    submissionReward: submission['Reward'] ? Number(submission['Reward']) : undefined,
+                    timeTaken: submission['Time taken'] ? Number(submission['Time taken']) : undefined,
+                    isComplete: submission['Is complete'] === 'true' || submission['Is complete'] === '1',
+                    bonusPayments: submission['Bonus payments']
+                      ? (() => {
+                          try {
+                            const parsed = JSON.parse(submission['Bonus payments']);
+                            return Array.isArray(parsed) ? parsed.map(Number) : [];
+                          } catch {
+                            return [];
+                          }
+                        })()
+                      : [],
+                    totalPayment:
+                      (study.reward || 0) +
+                      ((submission['Bonus payments']
+                        ? (() => {
+                            try {
+                              const parsed = JSON.parse(submission['Bonus payments']);
+                              return Array.isArray(parsed) ? parsed.reduce((a, b) => a + Number(b), 0) : 0;
+                            } catch {
+                              return 0;
+                            }
+                          })()
+                        : 0) || 0),
+                    lastSyncedAt: new Date().toISOString()
+                  }
+                }
+              });
+            } else {
+              throw error; // Re-throw if it's not a unique constraint error
+            }
+          }
+        }
 
 
         syncedParticipants++;
@@ -583,4 +674,13 @@ export class ProlificService {
   }
 }
 
-export const prolificService = new ProlificService();
+let _prolificService: ProlificService | null = null;
+
+export const prolificService = {
+  get instance(): ProlificService {
+    if (!_prolificService) {
+      _prolificService = new ProlificService();
+    }
+    return _prolificService;
+  }
+};

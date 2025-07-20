@@ -1,0 +1,4 @@
+#!/bin/bash
+export NODE_ENV=development
+cd "$(dirname "$0")/frontend"
+npx tsx ../scripts/evalctl.ts "$@"

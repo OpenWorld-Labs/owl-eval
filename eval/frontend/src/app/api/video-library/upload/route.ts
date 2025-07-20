@@ -11,6 +11,18 @@ export async function POST(request: NextRequest) {
     return authResult;
   }
 
+  // Get user's organization
+  let organizationId = null;
+  if (authResult.user?.id) {
+    try {
+      const { getUserOrganizations } = await import('@/lib/organization');
+      const organizations = await getUserOrganizations(authResult.user.id);
+      organizationId = organizations[0]?.organization?.id || null;
+    } catch (error) {
+      console.warn('Could not get user organization for video upload:', error);
+    }
+  }
+
   try {
     const formData = await request.formData()
     const file = formData.get('video') as File
@@ -48,6 +60,7 @@ export async function POST(request: NextRequest) {
         name: file.name,
         url: videoUrl,
         size: file.size,
+        organizationId,
         tags: [],
         groups: [],
         metadata: {

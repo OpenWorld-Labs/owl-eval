@@ -42,11 +42,6 @@ export async function POST(request: NextRequest) {
       }
 
       const data = await response.json();
-      console.log('CLI auth initialized:', { 
-        login_code: data.login_code,
-        polling_code: data.polling_code,
-        expires_at: data.expires_at 
-      });
       return NextResponse.json(data);
     }
 
@@ -76,10 +71,6 @@ export async function POST(request: NextRequest) {
 
       const data = await response.json();
       
-      console.log('Poll response:', { 
-        status: data.status, 
-        hasRefreshToken: !!data.refresh_token 
-      });
       
       // If authentication is complete, get user info
       if ((data.status === 'completed' || data.status === 'success') && data.refresh_token) {
