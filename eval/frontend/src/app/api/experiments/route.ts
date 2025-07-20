@@ -194,19 +194,6 @@ export async function GET(request: NextRequest) {
 
     // Process experiments to compute correct counts based on experiment type
     const experiments = experimentsRaw.map(exp => {
-      // Debug logging for winter-2025-one
-      if (exp.slug === 'winter-2025-one') {
-        console.log('\n=== WINTER-2025-ONE DEBUG ===');
-        console.log('Experiment prolificStudyId:', exp.prolificStudyId);
-        console.log('All participants in winter-2025-one:');
-        exp.participants.forEach((p, i) => {
-          console.log(`  ${i+1}. ID: ${p.id}`);
-          console.log(`     prolificId: ${p.prolificId}`);
-          console.log(`     status: ${p.status}`);
-          console.log(`     isAnon: ${p.prolificId?.startsWith('anon-') || false}`);
-        });
-      }
-
       // Determine valid participant filter based on experiment type - match CLI logic exactly
       const participantStatusFilter = exp.prolificStudyId 
         ? ['approved']  // For Prolific experiments, only count approved
@@ -217,19 +204,6 @@ export async function GET(request: NextRequest) {
         participant.prolificId &&
         !participant.prolificId.startsWith('anon-')  // Exclude anonymous participants
       );
-
-      if (exp.slug === 'winter-2025-one') {
-        console.log('Filter criteria:');
-        console.log('  statusFilter:', participantStatusFilter);
-        console.log('  requireProlificId: true');
-        console.log('  excludeAnonymous: true');
-        console.log('Valid participants after filtering:');
-        validParticipants.forEach((p, i) => {
-          console.log(`  ${i+1}. ID: ${p.id}, prolificId: ${p.prolificId}, status: ${p.status}`);
-        });
-        console.log('Final count:', validParticipants.length);
-        console.log('=== END DEBUG ===\n');
-      }
 
       const validParticipantIds = validParticipants.map(p => p.id);
 
