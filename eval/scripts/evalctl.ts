@@ -223,11 +223,43 @@ program
       try {
         const organizationId = await selectOrganization(auth);
         
-        // Build participant filter based on includeAnonymous setting
-        const participantFilter = options.includeAnonymous ? {
-          status: {
-            not: 'returned'  // Always exclude returned participants
+        // Get experiments first to check which have Prolific integration
+        const experimentsForFilter = await prisma.experiment.findMany({
+          where: {
+            organizationId,
+            archived: false,
+            ...(options.group && { group: options.group }),
+          },
+          select: {
+            id: true,
+            prolificStudyId: true
           }
+        });
+        
+        // Build participant filter based on includeAnonymous setting and Prolific integration
+        // For Prolific experiments, only count approved participants
+        // For non-Prolific experiments, count active/completed/approved participants
+        const participantFilter = options.includeAnonymous ? {
+          AND: [
+            {
+              OR: experimentsForFilter.map(exp => ({
+                AND: [
+                  { experimentId: exp.id },
+                  {
+                    status: {
+                      in: exp.prolificStudyId ? ['approved'] : ['active', 'completed', 'approved']
+                    }
+                  }
+                ]
+              }))
+            },
+            {
+              OR: [
+                { prolificId: { not: null } },  // Prolific participants
+                { sessionId: { startsWith: 'anon-session-' } }  // Anonymous participants
+              ]
+            }
+          ]
         } : {
           AND: [
             {
@@ -238,9 +270,19 @@ program
               }
             },
             {
-              status: {
-                not: 'returned'  // Always exclude returned participants
-              }
+              OR: experimentsForFilter.map(exp => ({
+                AND: [
+                  { experimentId: exp.id },
+                  {
+                    status: {
+                      in: exp.prolificStudyId ? ['approved'] : ['active', 'completed', 'approved']
+                    }
+                  }
+                ]
+              }))
+            },
+            {
+              prolificId: { not: null }  // Only Prolific participants, exclude anonymous
             }
           ]
         };
@@ -457,6 +499,32 @@ program
   .action(async (slug) => {
     await requireAuth('view experiment stats', async () => {
       try {
+        // First get experiment to check if it has Prolific integration
+        const baseExperiment = await prisma.experiment.findUnique({
+          where: { slug },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            evaluationMode: true,
+            prolificStudyId: true,
+            config: true,
+            createdAt: true,
+            startedAt: true,
+            completedAt: true
+          }
+        });
+        
+        if (!baseExperiment) {
+          console.log(chalk.red('Experiment not found'));
+          return;
+        }
+        
+        // Determine participant status filter based on Prolific integration
+        const participantStatusFilter = baseExperiment.prolificStudyId 
+          ? ['approved']  // For Prolific experiments, only count approved
+          : ['active', 'completed', 'approved'];  // For non-Prolific experiments, count all valid statuses
+        
         const experiment = await prisma.experiment.findUnique({
         where: { slug },
         include: {
@@ -464,7 +532,20 @@ program
             select: {
               twoVideoComparisonTasks: true,
               singleVideoEvaluationTasks: true,
-              participants: true,
+              participants: {
+                where: {
+                  AND: [
+                    {
+                      status: {
+                        in: participantStatusFilter
+                      }
+                    },
+                    {
+                      prolificId: { not: null }  // Only Prolific participants, exclude anonymous
+                    }
+                  ]
+                }
+              },
               twoVideoComparisonSubmissions: true,
               singleVideoEvaluationSubmissions: true,
             }
@@ -1744,13 +1825,44 @@ program
   .description('Debug progress calculation for an experiment')
   .action(async (slug) => {
     try {
+      // First get experiment to check if it has Prolific integration
+      const baseExperiment = await prisma.experiment.findUnique({
+        where: { slug },
+        select: {
+          prolificStudyId: true
+        }
+      });
+      
+      if (!baseExperiment) {
+        console.log(chalk.red(`Experiment "${slug}" not found.`));
+        return;
+      }
+      
+      // Determine participant status filter based on Prolific integration
+      const participantStatusFilter = baseExperiment.prolificStudyId 
+        ? ['approved']  // For Prolific experiments, only count approved
+        : ['active', 'completed', 'approved'];  // For non-Prolific experiments, count all valid statuses
+      
       const experiment = await prisma.experiment.findUnique({
         where: { slug },
         include: {
           _count: {
             select: {
               twoVideoComparisonTasks: true,
-              participants: true,
+              participants: {
+                where: {
+                  AND: [
+                    {
+                      status: {
+                        in: participantStatusFilter
+                      }
+                    },
+                    {
+                      prolificId: { not: null }  // Only Prolific participants, exclude anonymous
+                    }
+                  ]
+                }
+              },
               twoVideoComparisonSubmissions: true
             }
           }
@@ -1804,6 +1916,189 @@ program
       
     } catch (error) {
       console.error(chalk.red('Error debugging experiment:'), error);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+// Debug participants command
+program
+  .command('debug:participants <slug>')
+  .description('Show detailed participant information for an experiment')
+  .action(async (slug) => {
+    try {
+      const experiment = await prisma.experiment.findUnique({
+        where: { slug },
+        include: {
+          participants: {
+            select: {
+              id: true,
+              prolificId: true,
+              prolificSubmissionId: true,
+              status: true,
+              startedAt: true,
+              completedAt: true,
+              metadata: true
+            }
+          }
+        }
+      });
+      
+      if (!experiment) {
+        console.log(chalk.red(`Experiment "${slug}" not found.`));
+        return;
+      }
+      
+      console.log(chalk.blue.bold('\n🔍 Participant Debug for "' + experiment.name + '"\n'));
+      
+      console.log(chalk.white(`Total participants: ${experiment.participants.length}\n`));
+      
+      experiment.participants.forEach((participant, index) => {
+        console.log(chalk.yellow(`Participant ${index + 1}:`));
+        console.log(chalk.gray(`  ID: ${participant.id}`));
+        console.log(chalk.gray(`  Prolific ID: ${participant.prolificId || 'null'}`));
+        console.log(chalk.gray(`  Submission ID: ${participant.prolificSubmissionId || 'null'}`));
+        console.log(chalk.gray(`  Status: ${participant.status}`));
+        console.log(chalk.gray(`  Started: ${participant.startedAt}`));
+        console.log(chalk.gray(`  Completed: ${participant.completedAt || 'null'}`));
+        
+        if (participant.metadata) {
+          const metadata = participant.metadata as any;
+          if (metadata.submissionStatus) {
+            console.log(chalk.gray(`  Prolific Status: ${metadata.submissionStatus}`));
+          }
+          if (metadata.demographics) {
+            console.log(chalk.gray(`  Demographics: ${JSON.stringify(metadata.demographics)}`));
+          }
+        }
+        console.log();
+      });
+      
+      // Count by status
+      const statusCounts = experiment.participants.reduce((acc, p) => {
+        acc[p.status] = (acc[p.status] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      console.log(chalk.white('Status breakdown:'));
+      Object.entries(statusCounts).forEach(([status, count]) => {
+        console.log(chalk.gray(`  ${status}: ${count}`));
+      });
+      
+      // Show filtered count (what the CLI would count)
+      const participantStatusFilter = experiment.prolificStudyId 
+        ? ['approved']  // For Prolific experiments, only count approved
+        : ['active', 'completed', 'approved'];  // For non-Prolific experiments, count all valid statuses
+        
+      const validParticipants = experiment.participants.filter(p => 
+        participantStatusFilter.includes(p.status) && p.prolificId
+      );
+      
+      console.log(chalk.cyan(`\nFiltered count (${participantStatusFilter.join('/')} with prolificId): ${validParticipants.length}`));
+      
+    } catch (error) {
+      console.error(chalk.red('Error debugging participants:'), error);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+// Debug submissions command
+program
+  .command('debug:submissions <slug>')
+  .description('Show detailed submission information for an experiment')
+  .action(async (slug) => {
+    try {
+      const experiment = await prisma.experiment.findUnique({
+        where: { slug },
+        include: {
+          singleVideoEvaluationSubmissions: {
+            include: {
+              participant: {
+                select: {
+                  id: true,
+                  prolificId: true,
+                  status: true
+                }
+              },
+              singleVideoEvaluationTask: {
+                select: {
+                  id: true,
+                  scenarioId: true,
+                  modelName: true
+                }
+              }
+            }
+          },
+          singleVideoEvaluationTasks: {
+            select: {
+              id: true,
+              scenarioId: true,
+              modelName: true,
+              videoPath: true
+            }
+          }
+        }
+      });
+      
+      if (!experiment) {
+        console.log(chalk.red(`Experiment "${slug}" not found.`));
+        return;
+      }
+      
+      console.log(chalk.blue.bold('\n🔍 Submissions Debug for "' + experiment.name + '"\n'));
+      
+      console.log(chalk.white(`Tasks: ${experiment.singleVideoEvaluationTasks.length}`));
+      experiment.singleVideoEvaluationTasks.forEach((task, index) => {
+        console.log(chalk.gray(`  Task ${index + 1}: ${task.scenarioId} - ${task.modelName}`));
+      });
+      
+      console.log(chalk.white(`\nSubmissions: ${experiment.singleVideoEvaluationSubmissions.length}`));
+      
+      // Group submissions by participant
+      const submissionsByParticipant = experiment.singleVideoEvaluationSubmissions.reduce((acc, sub) => {
+        const participantId = sub.participant.id;
+        if (!acc[participantId]) {
+          acc[participantId] = {
+            participant: sub.participant,
+            submissions: []
+          };
+        }
+        acc[participantId].submissions.push(sub);
+        return acc;
+      }, {} as Record<string, { participant: any, submissions: any[] }>);
+      
+      Object.values(submissionsByParticipant).forEach(({ participant, submissions }) => {
+        console.log(chalk.yellow(`\nParticipant ${participant.prolificId || participant.id}:`));
+        console.log(chalk.gray(`  Status: ${participant.status}`));
+        console.log(chalk.gray(`  Submissions: ${submissions.length}`));
+        
+        submissions.forEach((sub, index) => {
+          console.log(chalk.gray(`    ${index + 1}. Task: ${sub.singleVideoEvaluationTask.scenarioId} - ${sub.singleVideoEvaluationTask.modelName}`));
+          console.log(chalk.gray(`       Status: ${sub.status}, Created: ${sub.createdAt}`));
+        });
+      });
+      
+      // Count valid submissions (from approved participants only for Prolific experiments)
+      const validParticipantIds = Object.values(submissionsByParticipant)
+        .filter(({ participant }) => {
+          if (experiment.prolificStudyId) {
+            return participant.status === 'approved' && participant.prolificId;
+          } else {
+            return ['active', 'completed', 'approved'].includes(participant.status);
+          }
+        })
+        .map(({ participant }) => participant.id);
+      
+      const validSubmissions = experiment.singleVideoEvaluationSubmissions.filter(sub => 
+        validParticipantIds.includes(sub.participantId)
+      );
+      
+      console.log(chalk.cyan(`\nValid submissions (from valid participants): ${validSubmissions.length}`));
+      console.log(chalk.cyan(`Expected submissions: ${experiment.singleVideoEvaluationTasks.length} tasks × ${validParticipantIds.length} participants = ${experiment.singleVideoEvaluationTasks.length * validParticipantIds.length}`));
+      
+    } catch (error) {
+      console.error(chalk.red('Error debugging submissions:'), error);
     } finally {
       await prisma.$disconnect();
     }
